@@ -50,3 +50,74 @@
     )
   )
 )
+
+
+
+(define (sum-blocks-heightwise-size-two mat)
+  (if (or (empty? mat) (empty? (rest mat)))
+      '()
+      (cons (map (lambda (block1 block2) 
+                   (list (+ (list-ref block1 0) (list-ref block2 0)) 
+                         (+ (list-ref block1 1) (list-ref block2 1))))
+                 (list->mat (first mat) 2 discardExcess)
+                 (list->mat (second mat) 2 discardExcess))
+            (sum-blocks-heightwise-size-two (cddr mat)))))
+
+(define (sum-blocks-heightwise mat height)
+  (if (< (length mat) height)
+      '()
+      (let ((blocks (map (lambda (row) (list->mat row 2 discardExcess)) 
+                         (take mat height))))
+        (cons (apply map 
+                     (lambda args 
+                       (list (apply + (map first args)) 
+                             (apply + (map second args))))
+                     blocks)
+              (sum-blocks-heightwise (drop mat height) height)))))
+
+(define (sum-blocks-let mat width height)
+  (if (< (length mat) height)
+      '()
+      (let* ((rows (take mat height))
+             (blocks (map (lambda (row) (list->mat row width discardExcess)) rows))
+             (sums (apply map 
+                          (lambda args 
+                            (list (/ (apply + (apply append args)) (* width height))))
+                          blocks)))
+        (cons sums (sum-blocks-let (drop mat height) width height)))))
+
+(display 
+    (map 
+        (lambda (matrix) 
+            (map 
+                (lambda (row) 
+                    (map
+                        (lambda (block) (/ (apply + block) 4))
+                        (list->mat row 2 discardExcess)
+                    ))
+                matrix
+            ))
+        (sum-blocks-heightwise (img->mat example) 2)
+    )
+)
+
+(define (sum-blocks mat width height)
+  (define (averageBlock block)
+    (/ (apply + (apply append block)) (* width height))
+  )
+
+  (if (< (length mat) height)
+    '()
+    (cons 
+    (apply map 
+              (lambda elements  ; renamed args to elements
+                  (averageBlock elements))  ; renamed args to elements
+                  (map 
+                    (lambda 
+                      (row) 
+                      (list->mat row width discardExcess)) 
+                    (take mat height)))
+            (sum-blocks (drop mat height) width height)
+    )
+  )
+)

@@ -4,11 +4,11 @@
 
 (require racket/trace)
 (require 2htdp/image)
-
-(provide 
-    img->mat
-    ascii-art
-)
+(require math/matrix)
+;;; (provide 
+;;;     img->mat
+;;;     ascii-art
+;;; )
 
 ;;; First function part ==============================================================================
 
@@ -50,78 +50,8 @@
     (floor (/ (* (length chars) (- 255 (floor intensity))) 256))
 )
 
-(define (ascii-art width height chars)
-    (define (img->blockMat img blockWidth blockHeight)
-        (define (averageBlockMat blockMat)
-            (map 
-                (lambda (row)
-                    (map 
-                        (lambda (block)
-                            (floor (/ (apply + block) (length block)))
-                        )
-                        row
-                    )
-                )
-                blockMat
-            )
-        )
-        
-        (averageBlockMat 
-            (list->mat 
-                (list->mat 
-                    (img->mat img) 
-                    blockWidth
-                    discardExcess
-                ) 
-                blockHeight
-                discardExcess
-            )
-        )
-    )
 
-    (define (blockMat->string blockMat)
-        (foldr 
-            (lambda (row acc)
-                (string-append 
-                    (foldr 
-                        (lambda (intensity acc)
-                            (string-append acc (string (list-ref chars (intensity->charIndex intensity))))
-                        )
-                        "" 
-                        row
-                    )
-                    "\n"
-                    acc
-                )
-            )
-            "" 
-            blockMat
-        )
-    )
-
-    (define (averagedBlockMat->intensitiesBlockMat blockMat)
-        (map 
-            (lambda (row)
-                (map 
-                    (lambda (intensity)
-                        (list-ref chars (intensity->charIndex intensity))
-                    )
-                    row
-                )
-            )
-            blockMat
-        )
-    )
-
-    (lambda (img)
-        (blockMat->string 
-            (averagedBlockMat->intensitiesBlockMat 
-                (img->blockMat img width height)
-            )
-        )
-    )
-)
-
+;;; Testing ==========================================================================================
 (define example 
     (above
         (beside (rectangle 2 1 "solid" (make-color 0 0 0))
@@ -129,4 +59,43 @@
         (beside (rectangle 2 3 "solid" (make-color 180 180 180))
                 (rectangle 3 3 "solid" (make-color 225 225 225)))))
 
-((ascii-art 2 2 chars) example)
+(define (printMatrix mat)
+    (println "Matrix:")
+    (for ([row mat])
+        (display row)
+        (newline)
+    )
+)
+
+(define (summAndAverageMatrix mat width height)
+  (define (averageBlock block)
+    (/ (apply + (apply append block)) (* width height))
+  )
+
+  (define (flatmapColsToRows mat row width height)
+    (map 
+      (lambda 
+        (row) 
+        (list->mat row width discardExcess)) 
+      (take mat height)
+    )
+  )
+
+  (if (< (length mat) height)
+    '()
+    (cons 
+      (apply 
+        map 
+        (lambda selectedBlock 
+            (averageBlock selectedBlock))
+            (flatmapColsToRows mat height width height))
+      (summAndAverageMatrix (drop mat height) width height)
+    )
+  )
+)
+
+
+(printMatrix (summAndAverageMatrix (img->mat example) 2 2))
+
+
+
