@@ -1,11 +1,37 @@
 #lang racket
-;;; SVGEN interpreter
 
+; Header =============================================================================================
 (require racket/trace)
 (provide execute)
 
+(define num-ops  '(+ - * / floor cos sin))
+(define bool-ops '(= < >))
+(define svg-ops  '(circle line rect))
 
-;;; SVG-Tag generators ===============================================================================
+; Helper functions ===================================================================================
+(define (get-op op) 
+    (match op
+        ['+ +]
+        ['- -]
+        ['* *]
+        ['/ /]
+        ['floor floor]
+        ['cos cos]
+        ['sin sin]
+        ['= =]
+        ['< <]
+        ['> >]
+        ['circle interpretCircle]
+        ['line interpretLine]
+        ['rect interpretRect]
+    )
+)
+
+(define (zip list1 list2)
+    (map (lambda (x y) (cons x y)) list1 list2)
+)
+
+; SVG-Tag generators =================================================================================
 (define (interpretCircle x y r style) 
     (format "<circle cx=\"~a\" cy=\"~a\" r=\"~a\" style=\"~a\" />" x y r style)
 )
@@ -18,19 +44,11 @@
     (format "<rect x=\"~a\" y=\"~a\" width=\"~a\" height=\"~a\" style=\"~a\" />" x y width height style)
 )
 
-;;; Enviroment =======================================================================================
+; Enviroment =========================================================================================
 (define empty-env '())
 
 (define (extend-env key value env)
     (cons (cons key value) env)
-)
-
-(define (lookup key env)
-    (cond
-        [(null? env) (error "No such key in enviroment | key: " key)]
-        [(eq? (caar env) key) (cdar env)]
-        [else (lookup key (cdr env))]
-    )
 )
 
 (define (env-init definitions)
@@ -57,152 +75,161 @@
     (foldl process-definition empty-env definitions)
 )
 
-;;; Program evaluation ===============================================================================
-(define (eval-expression expr env)
+(define (parse-prg prg)
+    (map (lambda (def) (cdr def)) prg)
+)
+
+(define (lookup key env)
     (cond
-        [(number? expr) expr]
-        [(string? expr) expr]
-        [(symbol? expr) (lookup expr env)]
-        [(list? expr) (eval-operation expr env)]
-        [(null? expr) '()]
-        [else (error "Unknown expression type" expr)]
+        [(null? env) (error (format "No such key in enviroment \n| key: ~a\n" key))]
+        [(eq? (caar env) key) (cdar env)]
+        [else (lookup key (cdr env))]
     )
 )
 
-(define (eval-svg-primitive op args env)
-    (let
-        [
-            (evaluated-args (map (lambda (arg) (eval-expression arg env)) args))
-        ]
-        (case op
-            ((circle) (apply interpretCircle evaluated-args))
-            ((line) (apply interpretLine evaluated-args))
-            ((rect) (apply interpretRect evaluated-args))
-        )
+; Program Evaluation =================================================================================
+(define (eval-expr expr env)
+    (match expr
+        ; arithmetic
+        [(list func args ...) #:when (member func num-ops) (execute-func func args env)]
+        [(? number?) expr]
+        [(? symbol?) (lookup expr env)]
+        [(? null?) ""]
+
+        ; argument
+        [(? string?) expr]
+
+        ; boolean
+        [(list func args ...) #:when (member func bool-ops) (execute-func func args env)]
+
+        ; conditional
+        [(list 'if cond then else) (execute-if cond then else env)]
+        [(list 'when cond then ..1) (execute-when cond then env)]
+
+        ; application
+        [(list func args ...) #:when (member func svg-ops) (execute-func func args env)]
+        [(list funcId args ...) #:when (symbol? funcId) (execute-funcId funcId args env)]
+        
+        ; error
+        [else (error (format "Invalid expression \n| expr: ~a\n" expr))]
     )
 )
 
-(define (eval-arithmetic op args env)
-    (let
-        [
-            (evaluated-args (map (lambda (arg) (eval-expression arg env)) args))
-        ]
-        (case op
-            ((+) (apply + evaluated-args))
-            ((-) (apply - evaluated-args))
-            ((*) (apply * evaluated-args))
-            ((/) (apply / evaluated-args))
-            ((floor) (apply floor evaluated-args))
-            ((cos) (apply cos evaluated-args))
-            ((sin) (apply sin evaluated-args))
-        )
-    )    
+(define (execute-func func args env)
+    (define (eval expr) (eval-expr expr env))
+    (apply (get-op func) (map eval args))   
 )
 
-(define (eval-boolean op args env)
-    (let
-        [
-            (evaluated-args (map (lambda (arg) (eval-expression arg env)) args))
-        ]
-        (case op
-            ((=) (apply = evaluated-args))
-            ((<) (apply < evaluated-args))
-            ((>) (apply > evaluated-args))
-        )
-    )    
-)
-
-(define (eval-if args env)
-    (let
-        [
-            (condition (first args))
-            (then-expr (second args))
-            (else-expr (third args))
-        ]
-        (if (eval-expression condition)
-            (eval-expression then-expr env)
-            (eval-expression else-expr env)
-        )
+(define (execute-if cond then else env)
+    (if (eval-expr cond env)
+        (eval-expr then env)
+        (eval-expr else env)
     )
 )
 
-(define (eval-when args env)
-    (let
-        [
-            (condition (eval-expression (car args) env))
-            (expressions (cdr args))
-        ]
-        (when condition
-            (for-each (lambda (expr) (eval-expression expr env)) expressions)
-        )
+(define (execute-when cond thens env)
+    (if (eval-expr cond env)
+        (flatten (map (lambda (arg) (eval-expr arg env)) thens))
+        ""
     )
 )
 
-(define (eval-function-call op args env)
+(define (execute-funcId func args env)
+    (define func-bodies (cdr (lookup func env))) 
+    (define func-args (car (lookup func env)))
+    (define eval-vals (map (lambda (arg) (eval-expr arg env)) args))
     (let
         [
-            (bodies (cdr (lookup op env)))
-            (new-env (foldl (lambda (arg value) (extend-env arg value env)) env args))
+            (new-env 
+                (foldl 
+                    (lambda (pair-n-v result-env) (extend-env (car pair-n-v) (cdr pair-n-v) result-env)) 
+                    env 
+                    (zip func-args eval-vals)
+                )
+            )
         ]
-        (
-            (map (lambda (body) (eval-expression body env)) bodies)
-        )
+        (flatten (map (lambda (body) (eval-expr body new-env)) func-bodies))
     )
 )
 
-(define (eval-operation expr env)
-    (let 
-        [
-            (op (car expr))
-            (args (cdr expr))
-        ]
 
-        (cond
-            ;;; SVG primitives
-            ((member op '(circle line rect)) (eval-svg-primitive op args env))
-            ;;; Arithmetic
-            ((member op '(+ - * / floor cos sin)) (eval-arithmetic op args env))
-            ;;; Boolean
-            ((member op '(= < >)) (eval-boolean op args env))
-            ;;; Conditional
-            ((eq? op 'if) (eval-if args env))
-            ((eq? op 'when) (eval-when args env))
-            ;;; Function call
-            [else (eval-function-call op args env)]
-            ;;; [else (error "Unknown operation" op)]
-        )
-    )    
-)
-
-
-;;; Execute ===========================================================================================
+; Execute ============================================================================================
 (define (execute width height prg expr)    
     (let 
         [
-            (enviroment (env-init prg))
+            (evaluated-expr (eval-expr expr (env-init prg)))
         ]
         (let
             [
-                (svg-string (eval-expression expr enviroment))
+                (svg-string 
+                    (if (list? evaluated-expr)
+                        (string-join evaluated-expr "")
+                        evaluated-expr
+                    )
+                )
+                ;;; (svg-string (string-join (eval-expr expr (env-init prg)) ""))
             ]
             (string-append
-                
                 (format "<svg width=\"~a\" height=\"~a\">" width height) 
                 svg-string 
                 "</svg>"
             )
         )
-        ;;; (for-each (lambda (e) (display e)) enviroment)
     )
 )
 
-
+; Testing ============================================================================================
 (define test1
-    '((define (start)
-        (rect 0 0 100 100 "fill:red")
-        (rect 100 0 100 100 "fill:green")
-        (rect 200 0 100 100 "fill:blue"))))
+    '(
+        (define HUNDRED 100)
+        (define STYLE "fill:red")
+        (define STYLEG "fill:green")
+        (define REP 3)
+        (define (start a)
+            (rect 200 0 a 100 "fill:blue")
+            (when (> a 0)
+                (start (- a 50))
+            ;;;     (rect 0 0 HUNDRED HUNDRED STYLE)
+            ;;;     (rect a 0 100 HUNDRED STYLEG)
+            )
+        )
+    )
+)
 
-(display (execute 400 400 test1 '(start)))
+(define test2
+  '(
+        (define STYLE "fill:red;opacity:0.2;stroke:red;stroke-width:3")
+        (define START 195)
+        (define END 10)
+        (define (circles x r)
+            (when (> r END)
+                (circle x 200 r STYLE)
+                (circles 
+                    (+ x (floor (/ r 2))) 
+                    (floor (/ r 2))
+                )
+            )
+        )
+    )
+)
 
-
+(define tree-prg
+'((define STYLE1 "stroke:black;stroke-width:2;opacity:0.9")
+    (define STYLE2 "stroke:green;stroke-width:3;opacity:0.9")
+    (define FACTOR 0.7)
+    (define PI 3.14)
+    (define (draw x1 y1 x2 y2 len angle)
+    (if (> len 30)
+        (line x1 y1 x2 y2 STYLE1)
+        (line x1 y1 x2 y2 STYLE2))
+    (when (> len 20)
+        (recur-tree x2 y2 (floor (* len FACTOR)) angle)
+        (recur-tree x2 y2 (floor (* len FACTOR)) (+ angle 0.3))
+        (recur-tree x2 y2 (floor (* len FACTOR)) (- angle 0.6))))
+    (define (recur-tree x1 y1 len angle)
+    (draw x1
+            y1
+            (+ x1 (* len (cos angle)))
+            (+ y1 (* len (sin angle)))
+            len
+            angle))))
