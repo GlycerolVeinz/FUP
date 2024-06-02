@@ -13,13 +13,13 @@
 (define knight-moves
     (list
         (list 2 1)
+        (list 2 -1)
         (list 1 2)
+        (list 1 -2)
         (list -1 2)
+        (list -1 -2)
         (list -2 1)
         (list -2 -1)
-        (list -1 -2)
-        (list 1 -2)
-        (list 2 -1)
     )
 )
 
@@ -33,6 +33,7 @@
             (for ([y (in-range size)])
                 (if (= (getPoint board (list x y)) '1)
                     (set! knights (cons (list x y) knights))
+                    (void)
                 )
             )
         )
@@ -55,13 +56,12 @@
             (for ([move (in-list knight-moves)])
                 (let
                     (
-                        [x (+ (car knight) (car move))]
-                        [y (+ (cadr knight) (cadr move))]
+                        [x (+ (first knight) (first move))]
+                        [y (+ (second knight) (second move))]
                     )
                     (if (inBounds? x y size)
-                        (if (not (equal? (getPoint board (list x y)) '1))
-                            (set! moves (cons (list knight (list x y)) moves))
-                        )
+                        (set! moves (cons (list x y) moves))
+                        (void)
                     )
                 )
             )
@@ -69,6 +69,7 @@
         moves
     )
 )
+
 
 (define (coordEqual? coord1 coord2)
     (and 
@@ -93,12 +94,30 @@
         (for ([knight (in-list knights)])
             (for ([move (in-list moves)])
                 (if (coordEqual? knight move)
-                    (set! )
+                    (set! res #f)
+                    (void)
                 )                
             )
         )
+        res
     )
 )
 
+(is_valid? 
+    '(
+        (1 0 0 0)
+        (0 0 0 1)
+        (1 0 0 0)
+        (0 1 0 0)
+    )
+)
 
+(is_valid? '
+    (
+        (0 1 0 0)
+        (0 0 0 1)
+        (1 0 0 0)
+        (0 0 1 0)
+    )
+)
 
